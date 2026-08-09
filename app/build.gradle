@@ -1,0 +1,36 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "com.whitenoise.tv"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.whitenoise.tv"
+        minSdk 23
+        // API 28 keeps notification playback simple on Android TV while the
+        // app remains installable on Android 6.0 and newer.
+        targetSdk 28
+        versionCode 1
+        versionName "1.0.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    // MediaPlayer opens these PCM beds through AssetFileDescriptor. Keeping
+    // them uncompressed also avoids an extra extraction step on Android TV.
+    androidResources {
+        noCompress += ["wav"]
+    }
+}

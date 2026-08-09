@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">White Noise TV</string>
+    <string name="app_subtitle">白噪音混音台  ·  遥控器友好</string>
+    <string name="master_on">全部暂停</string>
+    <string name="master_off">全部播放</string>
+    <string name="mixer_title">当前混音</string>
+    <string name="mixer_hint">左右调整音量
+上下切换音源
+确定键开关播放</string>
+    <string name="reset_mix">恢复默认混音</string>
+    <string name="no_tracks">还没有开启音源</string>
+    <string name="now_playing">正在播放</string>
+    <string name="paused">已暂停</string>
+    <string name="ready">待机中</string>
+    <string name="volume_format">%d%%</string>
+    <string name="track_count_format">%d 个音源</string>
+
+    <string-array name="track_names">
+        <item>绵柔雨声</item>
+        <item>暴雨声</item>
+        <item>海浪声</item>
+        <item>雷声</item>
+        <item>溪水声</item>
+        <item>风声</item>
+        <item>火堆声</item>
+    </string-array>
+    <string-array name="track_descriptions">
+        <item>细密、均匀的雨幕</item>
+        <item>密集雨点与远处雨棚</item>
+        <item>潮汐起伏，宽阔舒缓</item>
+        <item>低沉雷鸣，偶有回响</item>
+        <item>清亮流水与小石涟漪</item>
+        <item>柔和气流与远处阵风</item>
+        <item>温暖燃烧与偶发木柴爆裂</item>
+    </string-array>
+</resources>

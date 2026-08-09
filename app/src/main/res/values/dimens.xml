@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="screen_padding">52dp</dimen>
+    <dimen name="header_height">96dp</dimen>
+    <dimen name="track_row_height">104dp</dimen>
+    <dimen name="control_height">64dp</dimen>
+    <dimen name="panel_radius">18dp</dimen>
+</resources>
