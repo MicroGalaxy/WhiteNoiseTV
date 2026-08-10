@@ -5,11 +5,11 @@
 ## 已实现
 
 - 最低支持 Android 6.0（API 23），`targetSdk 28`，纯 Java 代码可同时运行在 32 位和 64 位 Android TV 设备上。
-- 绵柔雨声、暴雨声、海浪声、雷声、溪水声、风声、火堆声七条本地音源。
+- 绵柔雨声、暴雨声、海浪声三条本地实录音源。
 - 每条音源独立开关、独立音量；多条 `MediaPlayer` 同时播放形成混音。
 - 启动应用后自动播放上次保存的混音；播放服务使用前台服务，离开界面后继续播放。
-- 所有主要操作都有明确的 D-pad 焦点：确定键切换音源，左右键以 5% 步进调整音量，上下键移动音源。
-- 音源由 `tools/generate_audio.py` 生成。每条是约 28.4 秒的 44.1 kHz / 16-bit PCM WAV，并在循环点使用 1.6 秒等功率交叉淡化，避免直接拼接造成咔哒声或明显断点。
+- 每条音源整行只有一个 D-pad 焦点：上下键移动音源，左右键以 5% 步进调整当前音量，确定键开启或关闭，不需要在按钮和音量条之间切换。
+- 每条音源均从提供的长视频录音中选取稳定片段，制作为 120 秒、44.1 kHz、立体声、16-bit PCM WAV。转换不做降噪、频率均衡或有损重编码；循环边界使用 5 秒线性交叉淡化，并通过两遍 EBU R128 分析统一为 -26 LUFS、最高 -2 dBTP。
 
 ## 构建
 
@@ -21,10 +21,15 @@ compileSdk 35
 targetSdk 28
 ```
 
-音频 WAV 资源已经生成并放在 `app/src/main/res/raw/`。若需要重新生成：
+GitHub Actions 使用仓库 Secrets 中保存的固定签名密钥，并以 workflow run number 递增 `versionCode`。从旧的随机 debug 签名切换到固定签名时需要卸载旧版一次；安装首个固定签名版本后，后续构建可直接覆盖更新。签名密钥必须长期保留，丢失后将无法继续更新已安装应用。
+
+音频 WAV 资源已经放在 `app/src/main/res/raw/`。若需要从合法持有、具备使用授权的三个原视频重新制作：
 
 ```bash
-python3 tools/generate_audio.py
+tools/prepare_source_audio.sh \
+  "/path/to/soft-rain-source.mp4" \
+  "/path/to/heavy-rain-source.mp4" \
+  "/path/to/ocean-waves-source.mp4"
 ```
 
-脚本只使用 NumPy 和 Python 标准库，生成过程是确定性的；重新生成会得到相同的音源。音频为本项目内生成素材，不依赖网络或运行时下载。
+脚本依赖 FFmpeg 和系统自带的 `awk`，使用当前选定的固定时间点生成相同长度、循环结构和响度目标的文件。发布应用或公开仓库前，请确认原始录音及其摘录允许再分发。
