@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Generate the original, loop-ready PCM beds bundled by White Noise TV.
+"""Generate the original, loop-ready ambience beds for White Noise TV.
 
-The sounds are intentionally synthetic ambience rather than recordings. Each
-bed is made deterministic, normalized, and converted into a seamless loop by
-crossfading its tail into its head before writing mono 16-bit WAV.
+These are sound-designed ambience loops, not plain white-noise files. Every
+bed has a different structure: rain has discrete drops, the sea has recurring
+surges, thunder has low-frequency attacks and decays, and the fire has
+individual pops. The final PCM loop is crossfaded at its cyclic boundary.
 """
 
 from __future__ import annotations
@@ -18,12 +19,12 @@ import numpy as np
 SAMPLE_RATE = 44_100
 DURATION_SECONDS = 30.0
 SAMPLES = int(SAMPLE_RATE * DURATION_SECONDS)
-SEAM_SECONDS = 1.6
+SEAM_SECONDS = 2.0
 
 
-def shaped_noise(rng: np.random.Generator, length: int, low: float, high: float,
-                 slope: float = 0.0) -> np.ndarray:
-    """Create stationary noise with a soft spectral band using an FFT."""
+def band_noise(rng: np.random.Generator, length: int, low: float, high: float,
+              pink: float = 0.0) -> np.ndarray:
+    """Create normalized noise with a soft, musical spectral band."""
     white = rng.standard_normal(length).astype(np.float32)
     spectrum = np.fft.rfft(white)
     frequencies = np.fft.rfftfreq(length, 1.0 / SAMPLE_RATE)
@@ -33,9 +34,8 @@ def shaped_noise(rng: np.random.Generator, length: int, low: float, high: float,
         gain *= frequencies / (frequencies + low)
     if high > 0:
         gain *= 1.0 / np.sqrt(1.0 + (frequencies / high) ** 6)
-    if slope > 0:
-        gain *= 1.0 / np.power(np.maximum(frequencies, 1.0), slope)
-        gain /= max(float(np.max(gain)), 1e-6)
+    if pink > 0:
+        gain *= 1.0 / np.power(np.maximum(frequencies, 1.0), pink)
 
     filtered = np.fft.irfft(spectrum * gain, n=length).astype(np.float32)
     filtered -= np.mean(filtered)
@@ -43,139 +43,219 @@ def shaped_noise(rng: np.random.Generator, length: int, low: float, high: float,
     return filtered
 
 
-def slow_curve(rng: np.random.Generator, length: int, points: int,
-               low: float = 0.0, high: float = 1.0) -> np.ndarray:
-    """Interpolate gently changing control points for natural movement."""
+def smooth_curve(rng: np.random.Generator, length: int, points: int,
+                 low: float, high: float) -> np.ndarray:
     anchors = np.linspace(0, length - 1, points, dtype=np.float32)
     values = rng.uniform(low, high, points).astype(np.float32)
-    curve = np.interp(np.arange(length, dtype=np.float32), anchors, values)
-    return curve.astype(np.float32)
+    return np.interp(np.arange(length, dtype=np.float32), anchors, values).astype(np.float32)
 
 
-def burst(rng: np.random.Generator, length: int, decay: float,
-          high_pass: bool = False) -> np.ndarray:
-    noise = rng.standard_normal(length).astype(np.float32)
-    if high_pass and length > 1:
-        noise = np.concatenate(([0.0], np.diff(noise))).astype(np.float32)
-        noise /= max(float(np.std(noise)), 1e-6)
-    envelope = np.exp(-np.linspace(0.0, decay, length, dtype=np.float32))
-    attack = min(max(int(length * 0.05), 1), length)
-    envelope[:attack] *= np.linspace(0.0, 1.0, attack, dtype=np.float32)
-    return noise * envelope
-
-
-def add_bursts(signal: np.ndarray, rng: np.random.Generator, count: int,
-               min_ms: float, max_ms: float, min_amp: float, max_amp: float,
-               decay: float, high_pass: bool = False) -> None:
-    for _ in range(count):
-        start = int(rng.integers(0, max(1, SAMPLES - int(max_ms * SAMPLE_RATE / 1000))))
-        length = int(rng.uniform(min_ms, max_ms) * SAMPLE_RATE / 1000)
-        end = min(SAMPLES, start + max(length, 2))
-        signal[start:end] += rng.uniform(min_amp, max_amp) * burst(
-            rng, end - start, decay, high_pass=high_pass)
-
-
-def add_rumble(signal: np.ndarray, rng: np.random.Generator, start_seconds: float,
-               duration_seconds: float, amplitude: float) -> None:
-    start = int(start_seconds * SAMPLE_RATE)
-    length = min(int(duration_seconds * SAMPLE_RATE), SAMPLES - start)
-    if length <= 0:
-        return
-    rumble = shaped_noise(rng, length, 18.0, 260.0, slope=0.1)
+def shaped_envelope(length: int, attack: float, decay: float) -> np.ndarray:
     time = np.arange(length, dtype=np.float32) / SAMPLE_RATE
-    envelope = (1.0 - np.exp(-time / 0.35)) * np.exp(-time / max(duration_seconds * 0.75, 0.1))
-    signal[start:start + length] += amplitude * rumble * envelope.astype(np.float32)
+    attack_time = max(attack, 1e-4)
+    decay_time = max(decay, 1e-4)
+    return ((1.0 - np.exp(-time / attack_time)) * np.exp(-time / decay_time)).astype(np.float32)
+
+
+def add_noise_event(signal: np.ndarray, rng: np.random.Generator, start: float,
+                    duration: float, low: float, high: float, amplitude: float,
+                    attack: float = 0.01, decay: float | None = None,
+                    pink: float = 0.0) -> None:
+    first = max(0, int(start * SAMPLE_RATE))
+    length = min(int(duration * SAMPLE_RATE), SAMPLES - first)
+    if length < 2:
+        return
+    noise = band_noise(rng, length, low, high, pink=pink)
+    event = noise * shaped_envelope(length, attack, decay or duration * 0.7)
+    signal[first:first + length] += amplitude * event
+
+
+def add_tone_event(signal: np.ndarray, start: float, duration: float,
+                   amplitude: float, start_hz: float, end_hz: float | None = None,
+                   harmonics: tuple[tuple[float, float], ...] = (),
+                   attack: float = 0.01, decay: float | None = None) -> None:
+    first = max(0, int(start * SAMPLE_RATE))
+    length = min(int(duration * SAMPLE_RATE), SAMPLES - first)
+    if length < 2:
+        return
+    time = np.arange(length, dtype=np.float32) / SAMPLE_RATE
+    end_frequency = end_hz if end_hz is not None else start_hz
+    phase = 2.0 * np.pi * (start_hz * time
+                           + 0.5 * (end_frequency - start_hz) / max(duration, 1e-4) * time * time)
+    event = np.sin(phase)
+    for ratio, level in harmonics:
+        event += level * np.sin(phase * ratio)
+    event *= shaped_envelope(length, attack, decay or duration * 0.7)
+    signal[first:first + length] += amplitude * event.astype(np.float32)
+
+
+def add_drop(signal: np.ndarray, rng: np.random.Generator, start: float,
+             amplitude: float, surface_hz: float) -> None:
+    """A tiny impact with a bright tick and a short resonant surface tone."""
+    duration = float(rng.uniform(0.035, 0.13))
+    add_noise_event(signal, rng, start, duration, 2_000.0, 15_000.0,
+                    amplitude * 0.36, attack=0.001, decay=0.035)
+    add_tone_event(signal, start, duration * 1.7, amplitude * 0.72,
+                   surface_hz * rng.uniform(0.8, 1.2),
+                   surface_hz * rng.uniform(0.55, 0.9),
+                   harmonics=((2.0, 0.16),), attack=0.001, decay=0.08)
+
+
+def add_rumble(signal: np.ndarray, rng: np.random.Generator, start: float,
+               duration: float, amplitude: float, fundamental: float = 42.0) -> None:
+    """Low, moving rumble used for distant thunder and the body of a wave."""
+    first = max(0, int(start * SAMPLE_RATE))
+    length = min(int(duration * SAMPLE_RATE), SAMPLES - first)
+    if length < 2:
+        return
+    time = np.arange(length, dtype=np.float32) / SAMPLE_RATE
+    envelope = shaped_envelope(length, 0.12, duration * 0.7)
+    noise = band_noise(rng, length, 16.0, 320.0, pink=0.18)
+    phase = 2.0 * np.pi * (fundamental * time - 8.0 * time * time)
+    body = np.sin(phase) + 0.38 * np.sin(phase * 1.9 + 0.4)
+    signal[first:first + length] += amplitude * envelope * (0.62 * noise + 0.38 * body)
 
 
 def soft_rain(rng: np.random.Generator) -> np.ndarray:
-    rain = shaped_noise(rng, SAMPLES, 450.0, 12_000.0)
-    body = shaped_noise(rng, SAMPLES, 70.0, 1_000.0)
-    movement = 0.78 + 0.22 * slow_curve(rng, SAMPLES, 80)
-    signal = rain * movement + body * 0.16
-    add_bursts(signal, rng, 470, 12, 95, 0.025, 0.09, 4.6, high_pass=True)
+    """Gentle rain: a soft curtain underneath individually audible drops."""
+    curtain = band_noise(rng, SAMPLES, 750.0, 10_500.0)
+    low_body = band_noise(rng, SAMPLES, 100.0, 1_200.0, pink=0.1)
+    movement = 0.62 + 0.22 * smooth_curve(rng, SAMPLES, 45, 0.0, 1.0)
+    signal = curtain * movement * 0.26 + low_body * 0.045
+
+    for _ in range(300):
+        add_drop(signal, rng, float(rng.uniform(0.35, 29.25)),
+                 float(rng.uniform(0.035, 0.105)), float(rng.uniform(1_900.0, 4_800.0)))
     return signal
 
 
 def heavy_rain(rng: np.random.Generator) -> np.ndarray:
-    rain = shaped_noise(rng, SAMPLES, 650.0, 15_000.0)
-    roof = shaped_noise(rng, SAMPLES, 120.0, 2_400.0)
-    gusts = 0.74 + 0.35 * slow_curve(rng, SAMPLES, 44)
-    signal = rain * gusts + roof * 0.34
-    add_bursts(signal, rng, 980, 9, 80, 0.035, 0.13, 5.5, high_pass=True)
+    """Dense rain with a broad roof-like resonance and larger impacts."""
+    curtain = band_noise(rng, SAMPLES, 500.0, 13_000.0)
+    roof = band_noise(rng, SAMPLES, 115.0, 2_200.0, pink=0.08)
+    gusts = 0.68 + 0.34 * smooth_curve(rng, SAMPLES, 35, 0.0, 1.0)
+    signal = curtain * gusts * 0.34 + roof * 0.11
+
+    for _ in range(620):
+        add_drop(signal, rng, float(rng.uniform(0.3, 29.15)),
+                 float(rng.uniform(0.055, 0.17)), float(rng.uniform(1_300.0, 4_200.0)))
     return signal
 
 
 def ocean_waves(rng: np.random.Generator) -> np.ndarray:
-    foam = shaped_noise(rng, SAMPLES, 100.0, 6_500.0)
-    deep = shaped_noise(rng, SAMPLES, 22.0, 320.0, slope=0.15)
+    """Quiet shore between distinct, slow surf surges."""
     time = np.arange(SAMPLES, dtype=np.float32) / SAMPLE_RATE
-    tide = 0.18 + 0.82 * np.power(
-        (0.5 + 0.5 * np.sin(2.0 * np.pi * time / 8.7 - 0.7)), 2.4)
-    tide *= 0.86 + 0.18 * slow_curve(rng, SAMPLES, 32)
-    signal = foam * tide + deep * (0.18 + 0.16 * tide)
-    for start, duration, amplitude in ((1.2, 4.0, 0.26), (8.9, 4.7, 0.22),
-                                       (16.8, 4.1, 0.28), (25.0, 4.2, 0.24)):
-        add_rumble(signal, rng, start, duration, amplitude)
+    signal = band_noise(rng, SAMPLES, 25.0, 180.0, pink=0.28) * 0.025
+    signal += np.sin(2.0 * np.pi * 0.085 * time).astype(np.float32) * 0.018
+
+    # Each wave has a long body, a breaking crest, and a diminishing foam tail.
+    wave_starts = (0.9, 7.6, 14.4, 21.5, 27.0)
+    for index, start in enumerate(wave_starts):
+        duration = float(4.8 + 0.45 * (index % 3))
+        length = int(duration * SAMPLE_RATE)
+        local_time = np.arange(length, dtype=np.float32) / SAMPLE_RATE
+        u = np.clip(local_time / duration, 0.0, 1.0)
+        swell = np.sin(np.pi * np.power(u, 0.82)) ** 1.4
+        foam = band_noise(rng, length, 180.0, 8_500.0) * swell
+        first = int(start * SAMPLE_RATE)
+        end = min(SAMPLES, first + length)
+        available = end - first
+        if available > 1:
+            signal[first:end] += foam[:available].astype(np.float32) * 0.17
+        add_rumble(signal, rng, start + 0.28, duration * 0.9, 0.20, fundamental=48.0)
+        add_noise_event(signal, rng, start + duration * 0.34, 0.95,
+                        650.0, 9_000.0, 0.27, attack=0.08, decay=0.48)
+        add_tone_event(signal, start + duration * 0.35, 1.45, 0.09,
+                       72.0, 43.0, harmonics=((2.0, 0.22),), attack=0.1, decay=0.9)
     return signal
 
 
 def thunder(rng: np.random.Generator) -> np.ndarray:
-    rain = shaped_noise(rng, SAMPLES, 500.0, 7_000.0) * 0.12
-    signal = rain + shaped_noise(rng, SAMPLES, 24.0, 230.0, slope=0.2) * 0.18
-    add_rumble(signal, rng, 3.0, 5.2, 0.92)
-    add_rumble(signal, rng, 13.7, 4.0, 0.67)
-    add_rumble(signal, rng, 23.1, 5.0, 0.82)
+    """Three spaced thunder rolls with a quiet, distant rain bed."""
+    signal = band_noise(rng, SAMPLES, 650.0, 6_000.0) * 0.018
+    signal += band_noise(rng, SAMPLES, 28.0, 190.0, pink=0.2) * 0.025
+    for start, duration, amplitude in ((2.8, 5.1, 0.95), (13.2, 4.2, 0.68),
+                                       (23.0, 5.2, 0.82)):
+        add_noise_event(signal, rng, start, 0.18, 80.0, 1_100.0,
+                        amplitude * 0.32, attack=0.003, decay=0.10)
+        add_tone_event(signal, start + 0.04, duration, amplitude * 0.25,
+                       58.0, 31.0, harmonics=((1.7, 0.35), (2.6, 0.18)),
+                       attack=0.12, decay=duration * 0.65)
+        add_rumble(signal, rng, start + 0.08, duration, amplitude * 0.82, fundamental=38.0)
+        add_rumble(signal, rng, start + 0.72, duration * 0.72, amplitude * 0.33, fundamental=54.0)
     return signal
 
 
 def stream(rng: np.random.Generator) -> np.ndarray:
-    water = shaped_noise(rng, SAMPLES, 230.0, 10_500.0)
-    stones = shaped_noise(rng, SAMPLES, 55.0, 1_700.0)
-    current = 0.54 + 0.3 * slow_curve(rng, SAMPLES, 110)
-    signal = water * current + stones * 0.24
-    add_bursts(signal, rng, 300, 20, 130, 0.018, 0.07, 6.8, high_pass=True)
+    """Continuous bright water with small, high-pitched bubbling splashes."""
+    time = np.arange(SAMPLES, dtype=np.float32) / SAMPLE_RATE
+    current = 0.58 + 0.24 * smooth_curve(rng, SAMPLES, 90, 0.0, 1.0)
+    water = band_noise(rng, SAMPLES, 260.0, 8_800.0)
+    stones = band_noise(rng, SAMPLES, 60.0, 1_200.0, pink=0.08)
+    signal = water * current * 0.23 + stones * 0.08
+
+    for _ in range(150):
+        start = float(rng.uniform(0.3, 29.35))
+        duration = float(rng.uniform(0.04, 0.22))
+        frequency = float(rng.uniform(1_200.0, 3_800.0))
+        add_tone_event(signal, start, duration, float(rng.uniform(0.035, 0.085)),
+                       frequency, frequency * rng.uniform(0.75, 1.12),
+                       harmonics=((1.9, 0.18),), attack=0.004, decay=duration * 0.55)
     return signal
 
 
 def wind(rng: np.random.Generator) -> np.ndarray:
-    low = shaped_noise(rng, SAMPLES, 25.0, 280.0, slope=0.1)
-    air = shaped_noise(rng, SAMPLES, 180.0, 3_300.0)
-    gusts = 0.35 + 0.75 * slow_curve(rng, SAMPLES, 26)
+    """Breathy air with slow gusts and a faint moving whistle."""
     time = np.arange(SAMPLES, dtype=np.float32) / SAMPLE_RATE
-    whistle = np.sin(2.0 * np.pi * (170.0 + 14.0 * np.sin(time / 5.4)) * time).astype(np.float32)
-    signal = low * (0.35 + 0.38 * gusts) + air * (0.22 + 0.46 * gusts) + whistle * 0.035 * gusts
+    gusts = 0.22 + 0.95 * smooth_curve(rng, SAMPLES, 22, 0.0, 1.0)
+    low = band_noise(rng, SAMPLES, 22.0, 280.0, pink=0.16)
+    air = band_noise(rng, SAMPLES, 160.0, 3_200.0)
+    signal = low * gusts * 0.14 + air * gusts * 0.21
+
+    frequency = 245.0 + 72.0 * np.sin(2.0 * np.pi * time / 8.7)
+    phase = 2.0 * np.pi * np.cumsum(frequency) / SAMPLE_RATE
+    signal += np.sin(phase).astype(np.float32) * gusts * 0.075
+    for start in (1.8, 8.5, 16.1, 24.2):
+        add_noise_event(signal, rng, start, 4.2, 35.0, 2_100.0,
+                        0.16, attack=0.8, decay=2.4, pink=0.1)
     return signal
 
 
 def campfire(rng: np.random.Generator) -> np.ndarray:
-    ember = shaped_noise(rng, SAMPLES, 35.0, 620.0) * 0.34
-    air = shaped_noise(rng, SAMPLES, 700.0, 10_000.0) * 0.10
-    signal = ember + air
-    add_bursts(signal, rng, 160, 18, 80, 0.025, 0.10, 8.2, high_pass=True)
-    for start, amplitude in ((2.2, 0.50), (6.7, 0.37), (11.4, 0.62),
-                             (17.9, 0.44), (22.8, 0.55), (27.0, 0.39)):
-        length = int(rng.uniform(0.12, 0.34) * SAMPLE_RATE)
-        end = min(SAMPLES, int(start * SAMPLE_RATE) + length)
-        first = int(start * SAMPLE_RATE)
-        if end > first:
-            signal[first:end] += amplitude * burst(rng, end - first, 7.0, high_pass=True)
+    """Warm low flame bed with identifiable snaps, pops, and short hisses."""
+    time = np.arange(SAMPLES, dtype=np.float32) / SAMPLE_RATE
+    flicker = 0.22 + 0.22 * (0.5 + 0.5 * np.sin(2.0 * np.pi * time / 2.7))
+    flame = band_noise(rng, SAMPLES, 55.0, 500.0, pink=0.18)
+    air = band_noise(rng, SAMPLES, 800.0, 7_500.0)
+    signal = flame * flicker * 0.18 + air * flicker * 0.035
+
+    for _ in range(95):
+        start = float(rng.uniform(0.35, 29.2))
+        amplitude = float(rng.uniform(0.10, 0.30))
+        duration = float(rng.uniform(0.08, 0.24))
+        add_noise_event(signal, rng, start, duration, 900.0, 12_000.0,
+                        amplitude * 0.30, attack=0.002, decay=duration * 0.55)
+        add_tone_event(signal, start, duration * 1.8, amplitude * 0.50,
+                       float(rng.uniform(120.0, 280.0)),
+                       float(rng.uniform(65.0, 150.0)),
+                       harmonics=((2.1, 0.18),), attack=0.002, decay=0.12)
+
+    for start, amplitude in ((2.3, 0.55), (6.6, 0.42), (11.3, 0.68),
+                             (17.8, 0.48), (22.7, 0.60), (27.1, 0.45)):
+        add_noise_event(signal, rng, start, 0.07, 1_500.0, 14_000.0,
+                        amplitude * 0.42, attack=0.001, decay=0.035)
+        add_tone_event(signal, start + 0.005, 0.42, amplitude * 0.75,
+                       260.0, 78.0, harmonics=((2.0, 0.22),), attack=0.002, decay=0.18)
     return signal
 
 
 def make_seamless(signal: np.ndarray) -> np.ndarray:
-    """Replace the cyclic join with a 1.6s equal-power crossfade.
-
-    The resulting sequence begins after the original head and ends at the
-    original head's last sample, so the next loop continues into its original
-    next sample without a hard discontinuity.
-    """
+    """Crossfade the tail into the head without a hard cyclic discontinuity."""
     fade = int(SEAM_SECONDS * SAMPLE_RATE)
     head = signal[:fade]
     tail = signal[-fade:]
     phase = np.linspace(0.0, np.pi / 2.0, fade, dtype=np.float32)
-    left = np.cos(phase)
-    right = np.sin(phase)
-    crossfade = tail * left + head * right
+    crossfade = tail * np.cos(phase) + head * np.sin(phase)
     middle = signal[fade:-fade]
     return np.concatenate((middle, crossfade)).astype(np.float32)
 
@@ -202,15 +282,15 @@ def write_wav(path: Path, signal: np.ndarray) -> None:
 def generate(output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     builders = (
-        ("soft_rain", soft_rain, 0.17),
-        ("heavy_rain", heavy_rain, 0.20),
-        ("ocean_waves", ocean_waves, 0.16),
-        ("thunder", thunder, 0.13),
-        ("stream", stream, 0.16),
-        ("wind", wind, 0.14),
-        ("campfire", campfire, 0.14),
+        ("soft_rain", soft_rain, 0.15),
+        ("heavy_rain", heavy_rain, 0.18),
+        ("ocean_waves", ocean_waves, 0.12),
+        ("thunder", thunder, 0.10),
+        ("stream", stream, 0.13),
+        ("wind", wind, 0.12),
+        ("campfire", campfire, 0.11),
     )
-    for seed, (name, builder, target_rms) in enumerate(builders, start=101):
+    for seed, (name, builder, target_rms) in enumerate(builders, start=201):
         rng = np.random.default_rng(seed)
         signal = normalize(make_seamless(builder(rng)), target_rms)
         path = output_dir / f"{name}.wav"
