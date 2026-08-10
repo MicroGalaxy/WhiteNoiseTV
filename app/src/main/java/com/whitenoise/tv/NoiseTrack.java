@@ -18,9 +18,8 @@ final class NoiseTrack {
             R.raw.ocean_waves
     };
 
-    // Preserve each recording's dynamics and compensate for their different
-    // source loudness only at playback time.
-    static final int[] DEFAULT_VOLUMES = {100, 40, 12};
+    // The source files are normalized to the same perceived loudness.
+    static final int[] DEFAULT_VOLUMES = {100, 100, 100};
 
     private NoiseTrack() {
     }

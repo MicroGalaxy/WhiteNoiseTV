@@ -7,7 +7,7 @@ import java.util.Arrays;
 
 final class PlaybackPrefs {
     // Versioned because the bundled track list and source loudness changed.
-    private static final String PREFS = "white_noise_mix_v2";
+    private static final String PREFS = "white_noise_mix_v3";
     private static final String MASTER = "master_enabled";
     private static final String ENABLED_PREFIX = "track_enabled_";
     private static final String VOLUME_PREFIX = "track_volume_";

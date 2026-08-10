@@ -2,6 +2,17 @@ plugins {
     id "com.android.application"
 }
 
+def buildVersionCode = Integer.parseInt(System.getenv("BUILD_VERSION_CODE") ?: "1")
+def buildVersionName = System.getenv("BUILD_VERSION_NAME") ?: "1.0.0"
+def signingStorePath = System.getenv("ANDROID_SIGNING_STORE_FILE")
+def signingPassword = System.getenv("ANDROID_SIGNING_PASSWORD")
+def hasCiSigning = signingStorePath && signingPassword
+def hasPartialCiSigning = (signingStorePath || signingPassword) && !hasCiSigning
+
+if (hasPartialCiSigning) {
+    throw new GradleException("Both ANDROID_SIGNING_STORE_FILE and ANDROID_SIGNING_PASSWORD are required")
+}
+
 android {
     namespace "com.whitenoise.tv"
     compileSdk 35
@@ -12,11 +23,28 @@ android {
         // API 28 keeps notification playback simple on Android TV while the
         // app remains installable on Android 6.0 and newer.
         targetSdk 28
-        versionCode 1
-        versionName "1.0.0"
+        versionCode buildVersionCode
+        versionName buildVersionName
+    }
+
+    signingConfigs {
+        if (hasCiSigning) {
+            ci {
+                storeFile file(signingStorePath)
+                storeType "PKCS12"
+                storePassword signingPassword
+                keyAlias "whitenoise-tv"
+                keyPassword signingPassword
+            }
+        }
     }
 
     buildTypes {
+        debug {
+            if (hasCiSigning) {
+                signingConfig signingConfigs.ci
+            }
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
