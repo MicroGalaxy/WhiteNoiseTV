@@ -10,12 +10,12 @@ import android.os.Bundle;
 import android.os.IBinder;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
-import android.widget.SeekBar;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import java.util.Arrays;
@@ -28,13 +28,13 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
     private TextView interactionHint;
     private Button masterButton;
     private Button resetButton;
-    private Button[] trackButtons;
-    private SeekBar[] volumeBars;
+    private LinearLayout[] trackRows;
+    private TextView[] trackStateLabels;
+    private ProgressBar[] volumeBars;
     private TextView[] volumeLabels;
 
     private AudioPlaybackService audioService;
     private boolean bound;
-    private boolean updatingUi;
     private boolean masterEnabled = true;
     private boolean[] trackEnabled = NoiseTrack.defaultEnabled();
     private int[] trackVolumes = NoiseTrack.defaultVolumes();
@@ -72,30 +72,17 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
         resetButton = findViewById(R.id.reset_button);
 
         buildTrackRows();
-        masterButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (audioService != null) {
-                    audioService.setMasterEnabled(!masterEnabled);
-                }
-            }
-        });
-        resetButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (audioService != null) {
-                    audioService.resetMix();
-                }
-            }
-        });
-
+        configureGlobalControls();
         updateUi(new AudioPlaybackService.Snapshot(masterEnabled,
                 Arrays.copyOf(trackEnabled, trackEnabled.length),
                 Arrays.copyOf(trackVolumes, trackVolumes.length), false));
-        masterButton.post(new Runnable() {
+
+        // The first sound is the most useful starting point for a five-key
+        // remote. Pressing Up from it reaches the master control.
+        trackRows[0].post(new Runnable() {
             @Override
             public void run() {
-                masterButton.requestFocus();
+                trackRows[0].requestFocus();
             }
         });
     }
@@ -144,49 +131,103 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
         getWindow().setNavigationBarColor(Color.rgb(11, 20, 34));
     }
 
+    private void configureGlobalControls() {
+        masterButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (audioService != null) {
+                    audioService.setMasterEnabled(!masterEnabled);
+                }
+            }
+        });
+        masterButton.setOnKeyListener(new View.OnKeyListener() {
+            @Override
+            public boolean onKey(View v, int keyCode, KeyEvent event) {
+                if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                    return moveFocus(trackRows[0], event);
+                }
+                if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                    return moveFocus(resetButton, event);
+                }
+                return false;
+            }
+        });
+        masterButton.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override
+            public void onFocusChange(View v, boolean hasFocus) {
+                if (hasFocus) {
+                    interactionHint.setText(R.string.master_focus_hint);
+                }
+            }
+        });
+
+        resetButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (audioService != null) {
+                    audioService.resetMix();
+                }
+            }
+        });
+        resetButton.setOnKeyListener(new View.OnKeyListener() {
+            @Override
+            public boolean onKey(View v, int keyCode, KeyEvent event) {
+                if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                    return moveFocus(trackRows[NoiseTrack.COUNT - 1], event);
+                }
+                if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                    return moveFocus(masterButton, event);
+                }
+                return false;
+            }
+        });
+        resetButton.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override
+            public void onFocusChange(View v, boolean hasFocus) {
+                if (hasFocus) {
+                    interactionHint.setText(R.string.reset_focus_hint);
+                }
+            }
+        });
+    }
+
     private void buildTrackRows() {
-        trackButtons = new Button[NoiseTrack.COUNT];
-        volumeBars = new SeekBar[NoiseTrack.COUNT];
+        trackRows = new LinearLayout[NoiseTrack.COUNT];
+        trackStateLabels = new TextView[NoiseTrack.COUNT];
+        volumeBars = new ProgressBar[NoiseTrack.COUNT];
         volumeLabels = new TextView[NoiseTrack.COUNT];
-        String[] names = getResources().getStringArray(R.array.track_names);
+        final String[] names = getResources().getStringArray(R.array.track_names);
         String[] descriptions = getResources().getStringArray(R.array.track_descriptions);
 
         for (int i = 0; i < NoiseTrack.COUNT; i++) {
             final int index = i;
             LinearLayout row = new LinearLayout(this);
+            row.setId(View.generateViewId());
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(14), 0, dp(14), 0);
+            row.setPadding(dp(16), 0, dp(16), 0);
             row.setBackgroundResource(R.drawable.bg_track_row);
+            row.setFocusable(true);
+            row.setFocusableInTouchMode(true);
+            row.setClickable(true);
+            row.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+            row.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
 
             LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, dp(104));
-            rowParams.bottomMargin = dp(12);
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    getResources().getDimensionPixelSize(R.dimen.track_row_height));
+            rowParams.bottomMargin = dp(10);
 
-            Button toggleButton = new Button(this);
-            toggleButton.setLayoutParams(new LinearLayout.LayoutParams(dp(142), dp(64)));
-            toggleButton.setBackgroundResource(R.drawable.bg_control);
-            toggleButton.setStateListAnimator(null);
-            toggleButton.setTextSize(15);
-            toggleButton.setTextColor(getColorStateListCompat(R.color.control_text));
-            toggleButton.setAllCaps(false);
-            toggleButton.setFocusable(true);
-            toggleButton.setFocusableInTouchMode(true);
-            toggleButton.setContentDescription(names[index] + " 开关");
-            toggleButton.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    if (audioService != null) {
-                        audioService.setTrackEnabled(index, !trackEnabled[index]);
-                    }
-                }
-            });
+            TextView stateLabel = new TextView(this);
+            stateLabel.setLayoutParams(new LinearLayout.LayoutParams(dp(94), dp(38)));
+            stateLabel.setGravity(android.view.Gravity.CENTER);
+            stateLabel.setTextSize(14);
 
             LinearLayout details = new LinearLayout(this);
             details.setOrientation(LinearLayout.VERTICAL);
             details.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            details.setPadding(dp(18), 0, dp(14), 0);
-            details.setLayoutParams(new LinearLayout.LayoutParams(dp(218),
+            details.setPadding(dp(18), 0, dp(16), 0);
+            details.setLayoutParams(new LinearLayout.LayoutParams(dp(238),
                     LinearLayout.LayoutParams.MATCH_PARENT));
 
             TextView nameView = new TextView(this);
@@ -201,81 +242,130 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
             descriptionView.setTextSize(13);
             descriptionView.setMaxLines(1);
             descriptionView.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            descriptionView.setPadding(0, dp(5), 0, 0);
+            descriptionView.setPadding(0, dp(4), 0, 0);
 
             details.addView(nameView, new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
             details.addView(descriptionView, new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-            SeekBar seekBar = new SeekBar(this);
-            LinearLayout.LayoutParams seekParams = new LinearLayout.LayoutParams(
-                    0, dp(64), 1f);
-            seekBar.setLayoutParams(seekParams);
-            seekBar.setMax(100);
-            seekBar.setProgress(trackVolumes[index]);
-            seekBar.setPadding(dp(6), 0, dp(6), 0);
-            seekBar.setFocusable(true);
-            seekBar.setFocusableInTouchMode(true);
-            seekBar.setContentDescription(names[index] + " 音量");
-            seekBar.setProgressTintList(getColorStateListCompat(R.color.seekbar_progress));
-            seekBar.setThumbTintList(getColorStateListCompat(R.color.seekbar_thumb));
-            seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-                @Override
-                public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
-                    if (updatingUi) {
-                        return;
-                    }
-                    trackVolumes[index] = progress;
-                    volumeLabels[index].setText(String.format(Locale.getDefault(),
-                            getString(R.string.volume_format), progress));
-                    if (audioService != null) {
-                        audioService.setTrackVolume(index, progress);
-                    }
-                }
+            TextView volumeTitle = new TextView(this);
+            volumeTitle.setLayoutParams(new LinearLayout.LayoutParams(dp(52),
+                    LinearLayout.LayoutParams.WRAP_CONTENT));
+            volumeTitle.setText(R.string.volume_title);
+            volumeTitle.setTextColor(getColorCompat(R.color.text_muted));
+            volumeTitle.setTextSize(13);
+            volumeTitle.setGravity(android.view.Gravity.CENTER);
 
-                @Override
-                public void onStartTrackingTouch(SeekBar bar) {
-                    // D-pad and pointer interaction use the same listener.
-                }
-
-                @Override
-                public void onStopTrackingTouch(SeekBar bar) {
-                    // The value is persisted by the service on every change.
-                }
-            });
-            seekBar.setOnKeyListener(new View.OnKeyListener() {
-                @Override
-                public boolean onKey(View v, int keyCode, KeyEvent event) {
-                    if (event.getAction() != KeyEvent.ACTION_DOWN) {
-                        return false;
-                    }
-                    if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                        int delta = keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ? 5 : -5;
-                        int next = Math.max(0, Math.min(100, volumeBars[index].getProgress() + delta));
-                        volumeBars[index].setProgress(next);
-                        return true;
-                    }
-                    return false;
-                }
-            });
+            ProgressBar volumeBar = new ProgressBar(this, null,
+                    android.R.attr.progressBarStyleHorizontal);
+            LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(
+                    0, dp(14), 1f);
+            volumeBar.setLayoutParams(progressParams);
+            volumeBar.setMax(100);
+            volumeBar.setProgress(trackVolumes[index]);
+            volumeBar.setFocusable(false);
+            volumeBar.setProgressTintList(getColorStateListCompat(R.color.seekbar_progress));
+            volumeBar.setProgressBackgroundTintList(
+                    ColorStateList.valueOf(getColorCompat(R.color.divider)));
 
             TextView volumeLabel = new TextView(this);
-            volumeLabel.setLayoutParams(new LinearLayout.LayoutParams(dp(66),
+            volumeLabel.setLayoutParams(new LinearLayout.LayoutParams(dp(72),
                     LinearLayout.LayoutParams.WRAP_CONTENT));
-            volumeLabel.setGravity(android.view.Gravity.CENTER);
-            volumeLabel.setTextColor(getColorCompat(R.color.text_secondary));
-            volumeLabel.setTextSize(15);
-            volumeLabels[index] = volumeLabel;
+            volumeLabel.setGravity(android.view.Gravity.RIGHT | android.view.Gravity.CENTER_VERTICAL);
+            volumeLabel.setTextColor(getColorCompat(R.color.text_primary));
+            volumeLabel.setTextSize(16);
 
-            row.addView(toggleButton);
+            row.addView(stateLabel);
             row.addView(details);
-            row.addView(seekBar);
+            row.addView(volumeTitle);
+            row.addView(volumeBar);
             row.addView(volumeLabel);
             trackList.addView(row, rowParams);
 
-            trackButtons[index] = toggleButton;
-            volumeBars[index] = seekBar;
+            row.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    toggleTrack(index);
+                }
+            });
+            row.setOnKeyListener(new View.OnKeyListener() {
+                @Override
+                public boolean onKey(View v, int keyCode, KeyEvent event) {
+                    return handleTrackKey(index, v, keyCode, event);
+                }
+            });
+            row.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+                @Override
+                public void onFocusChange(View v, boolean hasFocus) {
+                    if (hasFocus) {
+                        interactionHint.setText(getString(R.string.track_focus_hint, names[index]));
+                    }
+                }
+            });
+
+            trackRows[index] = row;
+            trackStateLabels[index] = stateLabel;
+            volumeBars[index] = volumeBar;
+            volumeLabels[index] = volumeLabel;
+        }
+    }
+
+    private boolean handleTrackKey(int index, View row, int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+            View target = index == 0 ? masterButton : trackRows[index - 1];
+            return moveFocus(target, event);
+        }
+        if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+            View target = index == NoiseTrack.COUNT - 1 ? resetButton : trackRows[index + 1];
+            return moveFocus(target, event);
+        }
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT
+                || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                int delta = keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ? 5 : -5;
+                adjustTrackVolume(index, delta);
+            }
+            return true;
+        }
+        if (isConfirmKey(keyCode)) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                row.performClick();
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private boolean moveFocus(View target, KeyEvent event) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            target.requestFocus();
+        }
+        return true;
+    }
+
+    private boolean isConfirmKey(int keyCode) {
+        return keyCode == KeyEvent.KEYCODE_DPAD_CENTER
+                || keyCode == KeyEvent.KEYCODE_ENTER
+                || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+                || keyCode == KeyEvent.KEYCODE_BUTTON_A;
+    }
+
+    private void toggleTrack(int index) {
+        if (audioService != null) {
+            audioService.setTrackEnabled(index, !trackEnabled[index]);
+        }
+    }
+
+    private void adjustTrackVolume(int index, int delta) {
+        int next = Math.max(0, Math.min(100, trackVolumes[index] + delta));
+        if (next == trackVolumes[index]) {
+            return;
+        }
+        trackVolumes[index] = next;
+        updateVolumeUi(index);
+        if (audioService != null) {
+            audioService.setTrackVolume(index, next);
         }
     }
 
@@ -283,22 +373,35 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
         masterEnabled = snapshot.masterEnabled;
         trackEnabled = Arrays.copyOf(snapshot.trackEnabled, snapshot.trackEnabled.length);
         trackVolumes = Arrays.copyOf(snapshot.trackVolumes, snapshot.trackVolumes.length);
-        updatingUi = true;
+
         masterButton.setText(masterEnabled ? getString(R.string.master_on) : getString(R.string.master_off));
         playbackStatus.setText(!masterEnabled
                 ? getString(R.string.paused)
                 : (snapshot.hasPlayingTracks ? getString(R.string.now_playing) : getString(R.string.ready)));
         playbackStatus.setTextColor(getColorCompat(masterEnabled ? R.color.accent : R.color.text_muted));
 
+        String[] names = getResources().getStringArray(R.array.track_names);
         for (int i = 0; i < NoiseTrack.COUNT; i++) {
-            trackButtons[i].setText(trackEnabled[i] ? "已开启" : "开启");
-            trackButtons[i].setSelected(trackEnabled[i]);
-            volumeBars[i].setProgress(trackVolumes[i]);
-            volumeLabels[i].setText(String.format(Locale.getDefault(),
-                    getString(R.string.volume_format), trackVolumes[i]));
+            boolean enabled = trackEnabled[i];
+            trackRows[i].setActivated(enabled);
+            trackStateLabels[i].setText(enabled
+                    ? (masterEnabled ? R.string.track_state_playing : R.string.track_state_enabled)
+                    : R.string.track_state_off);
+            trackStateLabels[i].setTextColor(getColorCompat(enabled
+                    ? R.color.accent_bright : R.color.text_muted));
+            trackStateLabels[i].setBackgroundResource(enabled
+                    ? R.drawable.bg_state_on : R.drawable.bg_state_off);
+            updateVolumeUi(i);
+            trackRows[i].setContentDescription(getString(R.string.track_accessibility,
+                    names[i], trackStateLabels[i].getText(), trackVolumes[i]));
         }
         updateSummary();
-        updatingUi = false;
+    }
+
+    private void updateVolumeUi(int index) {
+        volumeBars[index].setProgress(trackVolumes[index]);
+        volumeLabels[index].setText(String.format(Locale.getDefault(),
+                getString(R.string.volume_format), trackVolumes[index]));
     }
 
     private void updateSummary() {
@@ -316,11 +419,9 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
         }
         if (count == 0) {
             activeSummary.setText(getString(R.string.no_tracks));
-            interactionHint.setText(getString(R.string.mixer_hint));
         } else {
             activeSummary.setText(String.format(Locale.getDefault(),
                     getString(R.string.track_count_format), count) + "\n" + activeNames);
-            interactionHint.setText(getString(R.string.mixer_hint));
         }
     }
 

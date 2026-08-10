@@ -5,16 +5,22 @@
     <string name="master_on">全部暂停</string>
     <string name="master_off">全部播放</string>
     <string name="mixer_title">当前混音</string>
-    <string name="mixer_hint">左右调整音量
-上下切换音源
-确定键开关播放</string>
+    <string name="mixer_hint">↑ / ↓  选择音源\n← / →  调整音量\n确定键  开启或关闭</string>
+    <string name="track_focus_hint">%1$s\n← / → 调整音量  ·  确定键开关</string>
+    <string name="master_focus_hint">总播放控制\n确定键暂停或继续  ·  ↓ 进入音源</string>
+    <string name="reset_focus_hint">恢复默认混音\n确定键恢复  ·  ↓ 回到顶部</string>
     <string name="reset_mix">恢复默认混音</string>
     <string name="no_tracks">还没有开启音源</string>
     <string name="now_playing">正在播放</string>
     <string name="paused">已暂停</string>
     <string name="ready">待机中</string>
     <string name="volume_format">%d%%</string>
+    <string name="volume_title">音量</string>
     <string name="track_count_format">%d 个音源</string>
+    <string name="track_state_playing">播放中</string>
+    <string name="track_state_enabled">已开启</string>
+    <string name="track_state_off">已关闭</string>
+    <string name="track_accessibility">%1$s，%2$s，音量 %3$d%%</string>
 
     <string-array name="track_names">
         <item>绵柔雨声</item>
