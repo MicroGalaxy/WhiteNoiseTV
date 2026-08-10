@@ -26,18 +26,10 @@
         <item>绵柔雨声</item>
         <item>暴雨声</item>
         <item>海浪声</item>
-        <item>雷声</item>
-        <item>溪水声</item>
-        <item>风声</item>
-        <item>火堆声</item>
     </string-array>
     <string-array name="track_descriptions">
         <item>细密、均匀的雨幕</item>
         <item>密集雨点与远处雨棚</item>
         <item>潮汐起伏，宽阔舒缓</item>
-        <item>低沉雷鸣，偶有回响</item>
-        <item>清亮流水与小石涟漪</item>
-        <item>柔和气流与远处阵风</item>
-        <item>温暖燃烧与偶发木柴爆裂</item>
     </string-array>
 </resources>
