@@ -4,7 +4,9 @@ import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.content.pm.ActivityInfo;
 import android.content.res.ColorStateList;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.IBinder;
@@ -60,6 +62,11 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        int deviceMode = getResources().getConfiguration().uiMode
+                & Configuration.UI_MODE_TYPE_MASK;
+        if (deviceMode == Configuration.UI_MODE_TYPE_TELEVISION) {
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+        }
         requestWindowFeatures();
         setContentView(R.layout.activity_main);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -77,14 +84,16 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
                 Arrays.copyOf(trackEnabled, trackEnabled.length),
                 Arrays.copyOf(trackVolumes, trackVolumes.length), false));
 
-        // The first sound is the most useful starting point for a five-key
-        // remote. Pressing Up from it reaches the master control.
-        trackRows[0].post(new Runnable() {
-            @Override
-            public void run() {
-                trackRows[0].requestFocus();
-            }
-        });
+        if (deviceMode == Configuration.UI_MODE_TYPE_TELEVISION) {
+            // The first sound is the most useful starting point for a five-key
+            // remote. Pressing Up from it reaches the master control.
+            trackRows[0].post(new Runnable() {
+                @Override
+                public void run() {
+                    trackRows[0].requestFocus();
+                }
+            });
+        }
     }
 
     @Override
@@ -192,6 +201,8 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
     }
 
     private void buildTrackRows() {
+        boolean portrait = getResources().getConfiguration().orientation
+                == Configuration.ORIENTATION_PORTRAIT;
         trackRows = new LinearLayout[NoiseTrack.COUNT];
         trackStateLabels = new TextView[NoiseTrack.COUNT];
         volumeBars = new ProgressBar[NoiseTrack.COUNT];
@@ -203,9 +214,10 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
             final int index = i;
             LinearLayout row = new LinearLayout(this);
             row.setId(View.generateViewId());
-            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setOrientation(portrait ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
             row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(16), 0, dp(16), 0);
+            row.setPadding(dp(16), portrait ? dp(14) : 0, dp(16), portrait ? dp(14) : 0);
+            row.setMinimumHeight(getResources().getDimensionPixelSize(R.dimen.track_row_height));
             row.setBackgroundResource(R.drawable.bg_track_row);
             row.setFocusable(true);
             row.setFocusableInTouchMode(true);
@@ -215,7 +227,8 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
 
             LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
-                    getResources().getDimensionPixelSize(R.dimen.track_row_height));
+                    portrait ? LinearLayout.LayoutParams.WRAP_CONTENT
+                            : getResources().getDimensionPixelSize(R.dimen.track_row_height));
             rowParams.bottomMargin = dp(10);
 
             TextView stateLabel = new TextView(this);
@@ -226,9 +239,10 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
             LinearLayout details = new LinearLayout(this);
             details.setOrientation(LinearLayout.VERTICAL);
             details.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            details.setPadding(dp(18), 0, dp(16), 0);
-            details.setLayoutParams(new LinearLayout.LayoutParams(dp(238),
-                    LinearLayout.LayoutParams.MATCH_PARENT));
+            details.setPadding(dp(portrait ? 14 : 18), 0, portrait ? 0 : dp(16), 0);
+            details.setLayoutParams(portrait
+                    ? new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    : new LinearLayout.LayoutParams(dp(238), LinearLayout.LayoutParams.MATCH_PARENT));
 
             TextView nameView = new TextView(this);
             nameView.setText(names[index]);
@@ -276,11 +290,34 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
             volumeLabel.setTextColor(getColorCompat(R.color.text_primary));
             volumeLabel.setTextSize(16);
 
-            row.addView(stateLabel);
-            row.addView(details);
-            row.addView(volumeTitle);
-            row.addView(volumeBar);
-            row.addView(volumeLabel);
+            if (portrait) {
+                LinearLayout heading = new LinearLayout(this);
+                heading.setOrientation(LinearLayout.HORIZONTAL);
+                heading.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                heading.addView(stateLabel);
+                heading.addView(details);
+                row.addView(heading, new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT));
+
+                LinearLayout volumeControls = new LinearLayout(this);
+                volumeControls.setOrientation(LinearLayout.HORIZONTAL);
+                volumeControls.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                volumeControls.addView(volumeTitle);
+                volumeControls.addView(volumeBar);
+                volumeControls.addView(volumeLabel);
+                LinearLayout.LayoutParams volumeParams = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+                volumeParams.topMargin = dp(12);
+                row.addView(volumeControls, volumeParams);
+            } else {
+                row.addView(stateLabel);
+                row.addView(details);
+                row.addView(volumeTitle);
+                row.addView(volumeBar);
+                row.addView(volumeLabel);
+            }
             trackList.addView(row, rowParams);
 
             row.setOnClickListener(new View.OnClickListener() {
