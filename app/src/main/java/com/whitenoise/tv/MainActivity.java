@@ -17,7 +17,7 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.LinearLayout;
-import android.widget.ProgressBar;
+import android.widget.SeekBar;
 import android.widget.TextView;
 
 import java.util.Arrays;
@@ -32,11 +32,12 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
     private Button resetButton;
     private LinearLayout[] trackRows;
     private TextView[] trackStateLabels;
-    private ProgressBar[] volumeBars;
+    private SeekBar[] volumeBars;
     private TextView[] volumeLabels;
 
     private AudioPlaybackService audioService;
     private boolean bound;
+    private boolean isTelevision;
     private boolean masterEnabled = true;
     private boolean[] trackEnabled = NoiseTrack.defaultEnabled();
     private int[] trackVolumes = NoiseTrack.defaultVolumes();
@@ -64,7 +65,8 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
         super.onCreate(savedInstanceState);
         int deviceMode = getResources().getConfiguration().uiMode
                 & Configuration.UI_MODE_TYPE_MASK;
-        if (deviceMode == Configuration.UI_MODE_TYPE_TELEVISION) {
+        isTelevision = deviceMode == Configuration.UI_MODE_TYPE_TELEVISION;
+        if (isTelevision) {
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         }
         requestWindowFeatures();
@@ -77,6 +79,7 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
         interactionHint = findViewById(R.id.interaction_hint);
         masterButton = findViewById(R.id.master_button);
         resetButton = findViewById(R.id.reset_button);
+        interactionHint.setText(isTelevision ? R.string.mixer_hint : R.string.mixer_touch_hint);
 
         buildTrackRows();
         configureGlobalControls();
@@ -84,7 +87,7 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
                 Arrays.copyOf(trackEnabled, trackEnabled.length),
                 Arrays.copyOf(trackVolumes, trackVolumes.length), false));
 
-        if (deviceMode == Configuration.UI_MODE_TYPE_TELEVISION) {
+        if (isTelevision) {
             // The first sound is the most useful starting point for a five-key
             // remote. Pressing Up from it reaches the master control.
             trackRows[0].post(new Runnable() {
@@ -164,7 +167,7 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
         masterButton.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override
             public void onFocusChange(View v, boolean hasFocus) {
-                if (hasFocus) {
+                if (hasFocus && isTelevision) {
                     interactionHint.setText(R.string.master_focus_hint);
                 }
             }
@@ -193,7 +196,7 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
         resetButton.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override
             public void onFocusChange(View v, boolean hasFocus) {
-                if (hasFocus) {
+                if (hasFocus && isTelevision) {
                     interactionHint.setText(R.string.reset_focus_hint);
                 }
             }
@@ -205,7 +208,7 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
                 == Configuration.ORIENTATION_PORTRAIT;
         trackRows = new LinearLayout[NoiseTrack.COUNT];
         trackStateLabels = new TextView[NoiseTrack.COUNT];
-        volumeBars = new ProgressBar[NoiseTrack.COUNT];
+        volumeBars = new SeekBar[NoiseTrack.COUNT];
         volumeLabels = new TextView[NoiseTrack.COUNT];
         final String[] names = getResources().getStringArray(R.array.track_names);
         String[] descriptions = getResources().getStringArray(R.array.track_descriptions);
@@ -272,17 +275,37 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
             volumeTitle.setTextSize(13);
             volumeTitle.setGravity(android.view.Gravity.CENTER);
 
-            ProgressBar volumeBar = new ProgressBar(this, null,
-                    android.R.attr.progressBarStyleHorizontal);
+            SeekBar volumeBar = new SeekBar(this);
             LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(
-                    0, dp(14), 1f);
+                    0, dp(48), 1f);
             volumeBar.setLayoutParams(progressParams);
             volumeBar.setMax(100);
             volumeBar.setProgress(trackVolumes[index]);
+            // Keep one remote-control focus per row while allowing touch drags.
             volumeBar.setFocusable(false);
+            volumeBar.setFocusableInTouchMode(false);
+            volumeBar.setContentDescription(getString(R.string.track_volume_accessibility,
+                    names[index]));
+            volumeBar.setThumbTintList(getColorStateListCompat(R.color.seekbar_thumb));
             volumeBar.setProgressTintList(getColorStateListCompat(R.color.seekbar_progress));
             volumeBar.setProgressBackgroundTintList(
                     ColorStateList.valueOf(getColorCompat(R.color.divider)));
+            volumeBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override
+                public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                    if (fromUser) {
+                        setTrackVolume(index, progress);
+                    }
+                }
+
+                @Override
+                public void onStartTrackingTouch(SeekBar seekBar) {
+                }
+
+                @Override
+                public void onStopTrackingTouch(SeekBar seekBar) {
+                }
+            });
 
             TextView volumeLabel = new TextView(this);
             volumeLabel.setLayoutParams(new LinearLayout.LayoutParams(dp(72),
@@ -336,7 +359,7 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
             row.setOnFocusChangeListener(new View.OnFocusChangeListener() {
                 @Override
                 public void onFocusChange(View v, boolean hasFocus) {
-                    if (hasFocus) {
+                    if (hasFocus && isTelevision) {
                         interactionHint.setText(getString(R.string.track_focus_hint, names[index]));
                     }
                 }
@@ -396,7 +419,11 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
     }
 
     private void adjustTrackVolume(int index, int delta) {
-        int next = Math.max(0, Math.min(100, trackVolumes[index] + delta));
+        setTrackVolume(index, trackVolumes[index] + delta);
+    }
+
+    private void setTrackVolume(int index, int volume) {
+        int next = PlaybackPrefs.clamp(volume);
         if (next == trackVolumes[index]) {
             return;
         }
