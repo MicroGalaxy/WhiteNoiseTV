@@ -220,7 +220,8 @@ public class MainActivity extends Activity implements AudioPlaybackService.State
             row.setMinimumHeight(getResources().getDimensionPixelSize(R.dimen.track_row_height));
             row.setBackgroundResource(R.drawable.bg_track_row);
             row.setFocusable(true);
-            row.setFocusableInTouchMode(true);
+            // Touches should click immediately instead of only acquiring focus.
+            row.setFocusableInTouchMode(false);
             row.setClickable(true);
             row.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
             row.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
